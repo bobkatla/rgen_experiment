@@ -1,6 +1,7 @@
 import click
 from rgen import __version__
 from rgen.cli.prep_data import prep_data
+from rgen.cli.train import train
 
 @click.group()
 @click.version_option(version=__version__, prog_name="rgen")
@@ -16,3 +17,4 @@ def info():
     click.echo("Running generative AI experiments package.")
 
 main.add_command(prep_data)
+main.add_command(train)
