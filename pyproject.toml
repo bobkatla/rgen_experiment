@@ -1,0 +1,59 @@
+[project]
+name = "rgen-experiment"
+version = "0.1.0"
+description = "Running generative AI experiments"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [{name="Bob La", email="duc.la@monash.edu"}]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.3",
+    "torchvision",
+    "numpy>=1.23",
+    "pydantic>=2.6",
+    "typing-extensions>=4.8",
+    "click>=8.2.1",
+    "pillow>=11.3.0",
+    "tqdm>=4.67.1",
+    "pyyaml>=6.0.2",
+    "omegaconf>=2.3.0",
+    "scikit-learn>=1.7.2",
+    "clean-fid>=0.1.35",
+    "matplotlib>=3.10.6",
+    "einops>=0.8.1",
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+  { index = "pytorch-cpu", marker = "sys_platform != 'linux'" },
+  { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[project.scripts]
+rgen = "rgen.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rgen"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]

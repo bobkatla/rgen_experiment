@@ -1,0 +1,15 @@
+import click
+from rgen import __version__
+
+@click.group()
+@click.version_option(version=__version__, prog_name="rgen")
+def main():
+    """RGEN - Running Generative AI Experiments"""
+    pass
+
+
+@main.command()
+def info():
+    """Display information about the rgen package."""
+    click.echo(f"rgen version {__version__}")
+    click.echo("Running generative AI experiments package.")
