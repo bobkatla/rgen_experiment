@@ -72,8 +72,6 @@ def train(
 
     # EMA and opt
     ema_helper = EMA(model, decay=ema)
-    opt = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.999), weight_decay=0.0)
-    scaler = torch.amp.GradScaler("cuda", enabled=amp)
 
     # Logging
     with open(os.path.join(out_dir, "classes.json"), "w") as f:

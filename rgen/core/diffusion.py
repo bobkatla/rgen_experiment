@@ -5,10 +5,6 @@ from torch import nn
 import torch.nn.functional as F
 
 def betas_for_alpha_bar(num_steps: int) -> torch.Tensor:
-    """
-    Cosine noise schedule (Nichol & Dhariwal, 2021).
-    Returns betas shape [num_steps].
-    """
     import math
     def alpha_bar(t: float) -> float:
         return math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2
@@ -23,23 +19,31 @@ def betas_for_alpha_bar(num_steps: int) -> torch.Tensor:
 class DiffusionConfig:
     image_size: int = 32
     timesteps: int = 4000
-    learn_sigma: bool = True  # if model predicts mean+sigma channels
-    predict_type: str = "eps" # "eps" | "v"
+    learn_sigma: bool = True
+    predict_type: str = "eps"  # "eps" | "v"
 
 class GaussianDiffusion(nn.Module):
     def __init__(self, model: nn.Module, cfg: DiffusionConfig):
         super().__init__()
         self.model = model
         self.cfg = cfg
+
         betas = betas_for_alpha_bar(cfg.timesteps)
         alphas = 1.0 - betas
         alphas_cumprod = torch.cumprod(alphas, dim=0)
+        alphas_cumprod_prev = torch.cat([torch.ones(1), alphas_cumprod[:-1]], dim=0)
+
+        posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        posterior_log_variance_clipped = torch.log(posterior_variance.clamp(min=1e-20))
 
         self.register_buffer("betas", betas)
         self.register_buffer("alphas", alphas)
         self.register_buffer("alphas_cumprod", alphas_cumprod)
+        self.register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
         self.register_buffer("sqrt_alphas_cumprod", torch.sqrt(alphas_cumprod))
         self.register_buffer("sqrt_one_minus_alphas_cumprod", torch.sqrt(1.0 - alphas_cumprod))
+        self.register_buffer("posterior_variance", posterior_variance)
+        self.register_buffer("posterior_log_variance_clipped", posterior_log_variance_clipped)
 
     def q_sample(self, x0: torch.Tensor, t: torch.Tensor, noise: torch.Tensor) -> torch.Tensor:
         return (
@@ -48,21 +52,13 @@ class GaussianDiffusion(nn.Module):
         )
 
     def training_loss(self, x0: torch.Tensor, t: torch.Tensor, y: torch.Tensor) -> dict:
-        """
-        x0 in [-1,1]. t is int64. y is labels with possible null id for CFG.
-        Uses epsilon prediction MSE by default.
-        """
         noise = torch.randn_like(x0)
         xt = self.q_sample(x0, t, noise)
         model_out = self.model(xt, t, y)
-
         if self.cfg.learn_sigma:
-            # predict [eps, sigma], but we keep standard eps-MSE objective;
-            # sigma head is ignored in baseline (kept for parity with ADM).
             c = x0.shape[1]
             eps_pred, _sigma = torch.split(model_out, [c, c], dim=1)
         else:
             eps_pred = model_out
-
         loss = F.mse_loss(eps_pred, noise, reduction="mean")
         return {"loss": loss}
