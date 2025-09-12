@@ -103,7 +103,7 @@ def train(
 
         t = torch.randint(0, timesteps, (x.size(0),), device=device, dtype=torch.long)
 
-        with torch.cuda.amp.autocast(enabled=amp):
+        with torch.amp.autocast("cuda", enabled=amp):
             out = diffusion.training_loss(x, t, y)
             loss = out["loss"]
 
