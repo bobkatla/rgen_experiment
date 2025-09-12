@@ -16,4 +16,4 @@ rgen train \
   --out-dir runs/cifar10_unet_eps_cfg \
   --batch-size 256 --lr 2e-4 --timesteps 4000 \
   --iters 200000 --ema 0.9999 --amp --seed 0 \
-  --label-drop-prob 0.1
+  --label-drop-prob 0.1 --num-workers 3
