@@ -11,6 +11,17 @@ from rgen.utils.log import JsonlLogger, save_text
 from rgen.core.model import UNet32
 from rgen.core.diffusion import DiffusionConfig, GaussianDiffusion
 from rgen.core.ema import EMA
+import torch.nn.functional as F
+from rgen.models.y_encoder import YEncoder
+
+# URC deps (guarded import so the baseline still runs without urc installed)
+try:
+    from urc.config import URCConfig, MDNConfig, QuantileConfig, LossConfig
+    from urc.core import URCModule
+    from urc.io import save_urc, load_urc
+    _URC_AVAILABLE = True
+except Exception:
+    _URC_AVAILABLE = False
 
 _NORM_TO_MINUS1_1 = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
 
@@ -32,6 +43,12 @@ def _cycle(loader):
 @click.option("--save-interval", type=int, default=10_000)
 @click.option("--label-drop-prob", type=float, default=0.0, help="Set >0.0 to enable classifier-free guidance training.")
 @click.option("--num-workers", type=int, default=4)
+@click.option("--use-urc/--no-use-urc", default=False, help="Enable URC region regularizer.")
+@click.option("--urc-weight", type=float, default=0.0, help="URC loss weight (can be ramped).")
+@click.option("--urc-alpha", type=float, default=0.05, help="URC quantile alpha (e.g., 0.05).")
+@click.option("--urc-dy", type=int, default=128, help="Feature dim for y-encoder.")
+@click.option("--urc-resume", type=click.Path(exists=True, dir_okay=False), default=None,
+              help="Path to URC checkpoint to resume.")
 def train(
     data_dir: str,
     out_dir: str,
@@ -45,6 +62,11 @@ def train(
     save_interval: int,
     label_drop_prob: float,
     num_workers: int,
+    use_urc: bool,
+    urc_weight: float,
+    urc_alpha: float,
+    urc_dy: int,
+    urc_resume: str,
 ):
     os.makedirs(out_dir, exist_ok=True)
     set_seed(seed, deterministic=True)
@@ -88,6 +110,64 @@ def train(
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.999), weight_decay=0.0)
     scaler = torch.amp.GradScaler("cuda", enabled=amp)
 
+    # --- URC: build (optional)
+    urc = None
+    y_enc = None
+    if use_urc:
+        if not _URC_AVAILABLE:
+            raise click.ClickException("URC not installed. pip/uv install the 'urc' package or disable --use-urc.")
+        # y-encoder
+        y_enc = YEncoder(d_y=urc_dy).to(device)
+
+        # URC config
+        urc_cfg = URCConfig(
+            phi=None,  # we pass y directly
+            mdn=MDNConfig(d_y=urc_dy, d_e=num_classes, n_comp=4, hidden=128, var_floor=1e-3, lr=5e-4),
+            quant=QuantileConfig(num_classes=num_classes, window_size=2048, warmup_min=128, alpha=urc_alpha),
+            loss=LossConfig(w_acc=1.0, w_sep=0.0, w_size=0.0, margin_acc=0.0, mode_acc="softplus"),
+        )
+        urc = URCModule(urc_cfg).to(device)
+
+        if urc_resume is not None:
+            urc = load_urc(urc_resume, map_location=device).to(device)
+    
+        # URC hook closure captures diagnostics into this dict
+    urc_last: dict = {}
+
+    def urc_fn(x0_pred: torch.Tensor, x_real: torch.Tensor, labels_t: torch.Tensor, _t_idx: torch.Tensor):
+        """
+        Called by diffusion.training_loss. Returns a scalar (already weighted).
+        Populates urc_last with diagnostics from URC.
+        """
+        if urc is None or y_enc is None or urc_weight == 0.0:
+            return torch.tensor(0.0, device=x0_pred.device, dtype=x0_pred.dtype)
+
+        with torch.amp.autocast("cuda", enabled=amp):
+            one_hot = F.one_hot(labels_t, num_classes=num_classes).float()
+            # features
+            with torch.no_grad():
+                y_real = y_enc(x_real)      # stop grad on real branch
+            y_gen = y_enc(x0_pred)          # grad flows to UNet via x0_pred
+
+            # conditions
+            e_real = one_hot.detach()
+            e_gen  = one_hot
+
+            out = urc.step(
+                y_real=y_real, e_real=e_real, labels_real=labels_t,
+                y_gen=y_gen,   e_gen=e_gen,   labels_gen=labels_t,
+            )
+
+        # capture diagnostics for logging outside autocast
+        urc_last.clear()
+        for k, v in out.items():
+            try:
+                urc_last[k] = float(v.detach().cpu()) if hasattr(v, "detach") else float(v)
+            except Exception:
+                urc_last[k] = v
+        return urc_weight * out["loss"]
+    # ---- end URC hook
+
     # ---- train loop
     model.train()
     step = 0
@@ -96,15 +176,23 @@ def train(
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True).long()
 
-        # classifier-free label dropout (keep at 0.0 for baseline)
+        # keep the true labels for URC
+        labels_true = y.clone()
+
+        # build conditional labels for the diffusion model (may include null id)
         if label_drop_prob > 0.0:
             mask = (torch.rand_like(y.float()) < label_drop_prob)
-            y = torch.where(mask, torch.full_like(y, cond_null_id), y)
+            y_cond = torch.where(mask, torch.full_like(y, cond_null_id), y)
+        else:
+            y_cond = y
 
         t = torch.randint(0, timesteps, (x.size(0),), device=device, dtype=torch.long)
 
         with torch.amp.autocast("cuda", enabled=amp):
-            out = diffusion.training_loss(x, t, y)
+            out = diffusion.training_loss(
+                x, t, y_cond, labels_true,
+                urc_fn if (urc is not None and urc_weight > 0.0) else None
+            )
             loss = out["loss"]
 
         optimizer.zero_grad(set_to_none=True)
@@ -116,7 +204,16 @@ def train(
         step += 1
 
         if step % 100 == 0:
-            logger.write({"step": step, "loss": float(loss.detach().cpu())})
+            rec = {"step": step, "loss": float(loss.detach().cpu())}
+            if "urc_loss" in out:
+                rec["urc/loss_weighted"] = float(out["urc_loss"].detach().cpu())
+            if urc_last:
+                # common URC diagnostics
+                for k in ("loss", "loss_acc", "hit_at_alpha", "tau_mean", "n_warm"):
+                    if k in urc_last:
+                        rec[f"urc/{k}"] = urc_last[k]
+            logger.write(rec)
+
 
         if step % save_interval == 0 or step == iters:
             # save raw
@@ -145,5 +242,13 @@ def train(
             with torch.no_grad():
                 grid = tvutils.make_grid((x[:64].clamp(-1,1) + 1) * 0.5, nrow=8)
                 tvutils.save_image(grid, os.path.join(out_dir, f"train_batch_{step:07d}.png"))
+            
+            # URC snapshot (optional)
+            if urc is not None:
+                try:
+                    save_urc(os.path.join(out_dir, f"urc_{step:07d}.pt"), urc, include_optimizer=True)
+                except Exception as e:
+                    click.echo(f"[warn] URC save failed at step {step}: {e}")
+
 
     click.echo(f"Training finished at step {step}. Checkpoints in {out_dir}.")

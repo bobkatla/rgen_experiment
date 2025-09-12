@@ -51,7 +51,11 @@ class GaussianDiffusion(nn.Module):
             + self.sqrt_one_minus_alphas_cumprod[t][:, None, None, None] * noise
         )
 
-    def training_loss(self, x0: torch.Tensor, t: torch.Tensor, y: torch.Tensor) -> dict:
+    def training_loss(self, x0: torch.Tensor, t: torch.Tensor, y: torch.Tensor, labels_true: torch.Tensor, urc_fn=None) -> dict:
+        """
+        x0 in [-1,1], t int64. If urc_fn is provided, compute x0_pred and add extra loss.
+        urc_fn signature: (x0_pred, x0_real, labels, t) -> scalar Tensor (already weighted).
+        """
         noise = torch.randn_like(x0)
         xt = self.q_sample(x0, t, noise)
         model_out = self.model(xt, t, y)
@@ -60,5 +64,16 @@ class GaussianDiffusion(nn.Module):
             eps_pred, _sigma = torch.split(model_out, [c, c], dim=1)
         else:
             eps_pred = model_out
-        loss = F.mse_loss(eps_pred, noise, reduction="mean")
-        return {"loss": loss}
+
+        loss_eps = F.mse_loss(eps_pred, noise, reduction="mean")
+        out = {"loss": loss_eps}
+
+        if urc_fn is not None:
+            at   = self.sqrt_alphas_cumprod[t][:, None, None, None]
+            omt  = self.sqrt_one_minus_alphas_cumprod[t][:, None, None, None]
+            x0_pred = (xt - omt * eps_pred) / (at + 1e-8)
+            urc_loss = urc_fn(x0_pred.clamp(-1, 1), x0, labels_true, t)
+            out["urc_loss"] = urc_loss
+            out["loss"] = loss_eps + urc_loss
+
+        return out
