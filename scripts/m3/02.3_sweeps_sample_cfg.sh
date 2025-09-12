@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=cifar10_sweeps_sample
-#SBATCH --output=cifar10_sweeps_sample.out
-#SBATCH --error=cifar10_sweeps_sample.err
+#SBATCH --job-name=cifar10_sweeps_cfg
+#SBATCH --output=cifar10_sweeps_cfg.out
+#SBATCH --error=cifar10_sweeps_cfg.err
 #SBATCH --account=tx89
 #SBATCH --time=90:00:00
-#SBATCH --ntasks=3
+#SBATCH --ntasks=4
 #SBATCH --cpus-per-task=1
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH --partition=gpu
 
 module load miniforge3
