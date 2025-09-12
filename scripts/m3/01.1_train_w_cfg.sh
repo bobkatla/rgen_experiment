@@ -6,7 +6,7 @@
 #SBATCH --time=90:00:00
 #SBATCH --ntasks=3
 #SBATCH --cpus-per-task=1
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:3
 #SBATCH --partition=gpu
 
 module load miniforge3

@@ -6,7 +6,7 @@
 #SBATCH --time=90:00:00
 #SBATCH --ntasks=3
 #SBATCH --cpus-per-task=1
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:4
 #SBATCH --partition=gpu
 
 module load miniforge3
@@ -17,6 +17,6 @@ rgen sweep-cfg \
   --ckpt "$CKPT" \
   --out-root sweeps/cifar10_base_fast \
   --weights 1,2,3,4 \
-  --steps 100, 250 \
+  --steps 100 \
   --n-samples 10000
 
