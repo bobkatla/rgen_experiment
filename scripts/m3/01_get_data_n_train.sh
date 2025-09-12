@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=cifar10_base
+#SBATCH --job-name=cifar10_base_train
 #SBATCH --output=cifar10_base_train.out
 #SBATCH --error=cifar10_base_train.err
 #SBATCH --account=tx89
