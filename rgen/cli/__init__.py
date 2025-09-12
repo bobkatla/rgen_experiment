@@ -4,6 +4,8 @@ from rgen.cli.prep_data import prep_data
 from rgen.cli.train import train
 from rgen.cli.sample import sample
 from rgen.cli.eval_fid import eval_fid
+from rgen.cli.report import report
+from rgen.cli.sweep_cfg import sweep_cfg
 
 @click.group()
 @click.version_option(version=__version__, prog_name="rgen")
@@ -22,3 +24,5 @@ main.add_command(prep_data)
 main.add_command(train)
 main.add_command(sample)
 main.add_command(eval_fid)
+main.add_command(report)
+main.add_command(sweep_cfg)
