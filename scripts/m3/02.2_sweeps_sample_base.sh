@@ -11,12 +11,12 @@
 
 module load miniforge3
 mamba activate urc
-# 1) Sample 50k with DDIM + CFG (w=3)
-CKPT=output/cifar10_unet_eps/ckpt_ema_0090000.pt  # <- pick an EMA checkpoint
+CKPT=output/cifar10_unet_eps/ckpt_ema_0100000.pt  # <- pick an EMA checkpoint
 # 10k samples, steps=100, sweep w
-uv run rgen sweep-cfg \
+rgen sweep-cfg \
   --ckpt "$CKPT" \
-  --out-root sweeps/cifar10_cfg_fast \
+  --out-root sweeps/cifar10_base_fast \
   --weights 1,2,3,4 \
-  --steps 100 \
+  --steps 100, 250 \
   --n-samples 10000
+
