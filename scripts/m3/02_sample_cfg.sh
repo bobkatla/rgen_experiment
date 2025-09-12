@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=cifar10_base_sample
-#SBATCH --output=cifar10_base_sample.out
-#SBATCH --error=cifar10_base_sample.err
+#SBATCH --job-name=cifar10_cfg_sample
+#SBATCH --output=cifar10_cfg_sample.out
+#SBATCH --error=cifar10_cfg_sample.err
 #SBATCH --account=tx89
 #SBATCH --time=90:00:00
 #SBATCH --ntasks=3

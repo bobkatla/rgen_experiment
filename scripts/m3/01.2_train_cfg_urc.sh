@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=cifar10_cfg_train
-#SBATCH --output=cifar10_cfg_train.out
-#SBATCH --error=cifar10_cfg_train.err
+#SBATCH --job-name=cifar10_cfg_urc_train
+#SBATCH --output=cifar10_cfg_urc_train.out
+#SBATCH --error=cifar10_cfg_urc_train.err
 #SBATCH --account=tx89
 #SBATCH --time=90:00:00
 #SBATCH --ntasks=3
