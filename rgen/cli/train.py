@@ -117,7 +117,7 @@ def train(
         if not _URC_AVAILABLE:
             raise click.ClickException("URC not installed. pip/uv install the 'urc' package or disable --use-urc.")
         # y-encoder
-        y_enc = YEncoder(d_y=urc_dy).to(device)
+        y_enc = YEncoder(d_y=urc_dy).to(device, dtype=torch.float32)
 
         # URC config
         urc_cfg = URCConfig(
@@ -126,46 +126,48 @@ def train(
             quant=QuantileConfig(num_classes=num_classes, window_size=2048, warmup_min=128, alpha=urc_alpha),
             loss=LossConfig(w_acc=1.0, w_sep=0.0, w_size=0.0, margin_acc=0.0, mode_acc="softplus"),
         )
-        urc = URCModule(urc_cfg).to(device)
+        urc = URCModule(urc_cfg).to(device, dtype=torch.float32)
 
         if urc_resume is not None:
             urc = load_urc(urc_resume, map_location=device).to(device)
     
         # URC hook closure captures diagnostics into this dict
     urc_last: dict = {}
-
-    def urc_fn(x0_pred: torch.Tensor, x_real: torch.Tensor, labels_t: torch.Tensor, _t_idx: torch.Tensor):
-        """
-        Called by diffusion.training_loss. Returns a scalar (already weighted).
-        Populates urc_last with diagnostics from URC.
-        """
+    def urc_fn(x0_pred: torch.Tensor, x_real: torch.Tensor,
+            labels_true: torch.Tensor, _t_idx: torch.Tensor):
         if urc is None or y_enc is None or urc_weight == 0.0:
-            return torch.tensor(0.0, device=x0_pred.device, dtype=x0_pred.dtype)
+            # return a scalar with the same dtype as the outer loss
+            return torch.zeros((), device=x0_pred.device, dtype=x0_pred.dtype)
 
+        # (optional) compute features under AMP for speed
         with torch.amp.autocast("cuda", enabled=amp):
-            one_hot = F.one_hot(labels_t, num_classes=num_classes).float()
-            # features
             with torch.no_grad():
-                y_real = y_enc(x_real)      # stop grad on real branch
-            y_gen = y_enc(x0_pred)          # grad flows to UNet via x0_pred
+                y_real_mixed = y_enc(x_real)     # no grad on real branch
+            y_gen_mixed = y_enc(x0_pred)         # grad flows to UNet via x0_pred
+            one_hot = F.one_hot(labels_true, num_classes=num_classes).to(x0_pred.device).float()
 
-            # conditions
-            e_real = one_hot.detach()
-            e_gen  = one_hot
-
+        # >>> URC must be FP32 (slogdet requires it) <<<
+        with torch.amp.autocast("cuda", enabled=False):
             out = urc.step(
-                y_real=y_real, e_real=e_real, labels_real=labels_t,
-                y_gen=y_gen,   e_gen=e_gen,   labels_gen=labels_t,
+                y_real=y_real_mixed.float(),
+                e_real=one_hot.float(),
+                labels_real=labels_true,
+                y_gen=y_gen_mixed.float(),
+                e_gen=one_hot.float(),
+                labels_gen=labels_true,
             )
+            urc_loss_fp32 = urc_weight * out["loss"]  # FP32 scalar
 
-        # capture diagnostics for logging outside autocast
+        # capture diagnostics
         urc_last.clear()
         for k, v in out.items():
             try:
                 urc_last[k] = float(v.detach().cpu()) if hasattr(v, "detach") else float(v)
             except Exception:
                 urc_last[k] = v
-        return urc_weight * out["loss"]
+
+        # Return loss with the SAME dtype as diffusion loss (likely FP16 under AMP)
+        return urc_loss_fp32.to(dtype=x0_pred.dtype)
     # ---- end URC hook
 
     # ---- train loop
