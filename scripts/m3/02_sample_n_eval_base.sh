@@ -12,10 +12,10 @@
 module load miniforge3
 mamba activate urc
 CKPT=output/cifar10_unet_eps/ckpt_ema_0100000.pt  # <- pick an EMA checkpoint
-rgen sample --ckpt "$CKPT" --out-dir samples/cfg_w3_250 --steps 250 --no-guidance --n-samples 50000
+rgen sample --ckpt "$CKPT" --out-dir samples/base_250 --steps 250 --no-guidance --n-samples 50000
 
 # 2) Evaluate FID against CIFAR-10 test
 rgen eval-fid \
-  --gen-dir samples/cfg_w3_250 \
+  --gen-dir samples/base_250 \
   --reference folder \
   --ref-dir data/cifar10/test
