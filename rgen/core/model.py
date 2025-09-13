@@ -8,22 +8,25 @@ from torch import nn
 # ---- Embeddings ----
 
 class SinusoidalPosEmb(nn.Module):
-    """Standard 1D sinusoidal embedding for timesteps."""
-    def __init__(self, dim: int):
+    def __init__(self, dim: int, max_period: int = 10000):
         super().__init__()
         self.dim = dim
+        self.max_period = max_period
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
+        """
+        Standard DDPM/ADM embedding.
+        t: (B,) int or float timesteps in [0, T)
+        """
         device = t.device
         half = self.dim // 2
-        # exp(-linspace(log(1), log(10000), half)) gives 1/exp(...)
         freqs = torch.exp(
-            torch.linspace(math.log(1.0), math.log(10000.0), half, device=device) * (-1)
-        )
-        args = t.float().unsqueeze(1) * freqs.unsqueeze(0)
-        emb = torch.cat([args.sin(), args.cos()], dim=-1)
-        if self.dim % 2 == 1:
-            emb = torch.nn.functional.pad(emb, (0, 1), mode="constant")
+            -math.log(self.max_period) * torch.arange(0, half, device=device).float() / half
+        )  # [half] in (1, 1/max_period]
+        args = t.float()[:, None] * freqs[None, :]  # (B,half)
+        emb = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+        if self.dim % 2:
+            emb = torch.nn.functional.pad(emb, (0,1))
         return emb
 
 def make_mlp(in_dim: int, out_dim: int, hidden: Optional[int] = None) -> nn.Sequential:

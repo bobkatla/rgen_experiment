@@ -142,3 +142,63 @@ def ddim_sample(
             "classes_json": classes_json,
             "seed": seed
         }, f, indent=2)
+
+@torch.no_grad()
+def ddpm_sample(ckpt_path, out_dir, n_samples=10000, batch_size=100, steps=1000,
+                class_balance=True, seed=0, device=None, classes_json=None):
+    device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+    os.makedirs(out_dir, exist_ok=True)
+
+    # load model + diffusion (same helper you already have)
+    model, diffusion, timesteps = _load_ema_unet_and_cfg(ckpt_path, device=device)
+
+    # labels
+    num_classes = 10
+    cond_null_id = num_classes
+    if class_balance:
+        per = int(math.ceil(n_samples / num_classes))
+        labels = torch.arange(num_classes).repeat_interleave(per)[:n_samples]
+    else:
+        labels = torch.randint(0, num_classes, (n_samples,))
+    labels = labels.to(device)
+
+    # choose evenly spaced DDPM indices
+    t_seq = _build_schedule(timesteps, steps).to(device)  # descending indices
+    a_bar = diffusion.alphas_cumprod.to(device)
+    betas = diffusion.betas.to(device)
+
+    g = torch.Generator(device=device).manual_seed(seed)
+    saved = 0
+    pbar = tqdm(range(0, n_samples, batch_size), desc="DDPM sampling", ncols=88)
+    while saved < n_samples:
+        bs = min(batch_size, n_samples - saved)
+        y = labels[saved:saved+bs]
+        x = torch.randn(bs, 3, 32, 32, device=device, generator=g)
+
+        for ti, t in enumerate(t_seq):
+            t_int = int(t.item())
+            out = model(x, t.expand(bs), y)
+            eps = out[:, :3]
+
+            at = a_bar[t_int]
+            sqrt_at = at.sqrt()
+            sqrt_one_minus_at = (1.0 - at).sqrt()
+            x0_pred = (x - sqrt_one_minus_at * eps) / sqrt_at
+
+            # DDPM mean
+            at_prev = a_bar[t_seq[ti + 1].item()] if ti + 1 < len(t_seq) else torch.tensor(1.0, device=device)
+            coef1 = (betas[t_int].sqrt())
+            coef2 = ((1 - at_prev - betas[t_int]).clamp(min=0).sqrt())
+            mean = ( (at_prev.sqrt()) * x0_pred + (coef2) * eps )
+
+            if t_int > 0:
+                noise = torch.randn_like(x, generator=g)
+                x = mean + coef1 * noise
+            else:
+                x = mean
+
+        imgs = (x.clamp(-1,1) + 1) * 0.5
+        for i in range(bs):
+            save_image(imgs[i], os.path.join(out_dir, f"{saved+i:06d}.png"))
+        saved += bs
+        pbar.update(1)
