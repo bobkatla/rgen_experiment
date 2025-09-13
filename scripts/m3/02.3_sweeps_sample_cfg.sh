@@ -17,6 +17,6 @@ rgen sweep-cfg \
   --ckpt "$CKPT" \
   --out-root sweeps/cifar10_cfg_fast \
   --weights 1,2,3,4 \
-  --steps 100, 250 \
+  --steps 100 \
   --n-samples 10000
 
