@@ -34,16 +34,13 @@ def _load_ema_unet_and_cfg(ckpt_path: str, num_classes: int = 10, cond_null_id: 
     df = GaussianDiffusion(model, DiffusionConfig(image_size=32, timesteps=timesteps, learn_sigma=True, predict_type="eps")).to(device)
     return model, df, timesteps
 
-def _build_schedule(timesteps: int, steps: int) -> torch.Tensor:
-    """Create a decreasing list of t indices for DDIM with `steps` evaluations."""
-    if steps >= timesteps:
-        return torch.arange(timesteps - 1, -1, -1, dtype=torch.long)
-    stride = math.ceil(timesteps / steps)
-    t = torch.arange(timesteps - 1, -1, -stride, dtype=torch.long)  # e.g., 3999, 3959, ...
+def _build_schedule(T: int, S: int) -> torch.Tensor:
+    import torch
+    # evenly spaced, round to ints, strictly descending, end at 0
+    t = torch.linspace(T-1, 0, steps=S, dtype=torch.float64).round().to(torch.long)
+    t = torch.unique_consecutive(t)
     if t[-1] != 0:
         t = torch.cat([t, torch.zeros(1, dtype=torch.long)])
-    # ensure strictly descending and unique
-    t = torch.unique_consecutive(t)
     return t
 
 @torch.no_grad()
@@ -59,6 +56,7 @@ def ddim_sample(
     seed: int = 0,
     device: Optional[torch.device] = None,
     classes_json: Optional[str] = None,
+    eta: float = 0.0
 ):
     device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
     os.makedirs(out_dir, exist_ok=True)
@@ -89,8 +87,12 @@ def ddim_sample(
     labels = labels.to(device)
 
     # DDIM schedule (indices descending)
-    t_seq = _build_schedule(timesteps, steps).to(device)  # e.g., [3999, ..., 0]
-    a_bar = diffusion.alphas_cumprod.to(device)
+    t_seq = _build_schedule(timesteps, steps).to(device)       # e.g. [3999,...,0]
+    assert t_seq[0] == timesteps-1 and t_seq[-1] == 0, (t_seq[:5], t_seq[-5:], len(t_seq))
+    assert t_seq.unique().numel() == len(t_seq)
+    abar = diffusion.alphas_cumprod.to(device)                 # ᾱ_t
+    # alpha    = diffusion.alphas.to(device)                         # α_t
+    # betas = diffusion.betas.to(device)
 
     # sampling
     g = torch.Generator(device=device).manual_seed(seed)
@@ -101,29 +103,33 @@ def ddim_sample(
         y = labels[saved:saved+bs]
         x = torch.randn(bs, 3, 32, 32, device=device, generator=g)
 
-        for ti, t in enumerate(t_seq):
-            t_int = int(t.item())
-            at = a_bar[t_int]
-            at_prev = a_bar[t_seq[ti + 1].item()] if ti + 1 < len(t_seq) else torch.tensor(1.0, device=device)
+        for i, t in enumerate(t_seq):
+            t = int(t.item())
+            tprev = int(t_seq[i+1].item()) if i+1 < len(t_seq) else -1  # use -1 to denote x_{-1} ≡ x_0
+            abar_t     = abar[t]
+            abar_prev  = 1.0 if tprev < 0 else abar[tprev]
 
-            # predict eps (with or without CFG)
+            # ε prediction (CFG or not)
             if use_guidance and guidance_weight != 0.0:
                 y_null = torch.full_like(y, cond_null_id)
-                eps_u = model(x, t.expand(bs), y_null)[:, :3]
-                eps_c = model(x, t.expand(bs), y)[:, :3]
+                eps_u = model(x, torch.full((bs,), t, device=device, dtype=torch.long), y_null)[:, :3]
+                eps_c = model(x, torch.full((bs,), t, device=device, dtype=torch.long), y)[:, :3]
                 eps   = eps_u + guidance_weight * (eps_c - eps_u)
             else:
-                eps   = model(x, t.expand(bs), y)[:, :3]
+                eps   = model(x, torch.full((bs,), t, device=device, dtype=torch.long), y)[:, :3]
 
-            # DDIM update (eta=0)
-            sqrt_at = at.sqrt()
-            sqrt_one_minus_at = (1.0 - at).sqrt()
-            x0_pred = (x - sqrt_one_minus_at * eps) / sqrt_at
-            sqrt_at_prev = at_prev.sqrt()
-            sqrt_one_minus_at_prev = (1.0 - at_prev).sqrt()
-            x = sqrt_at_prev * x0_pred + sqrt_one_minus_at_prev * eps
+            # x0 from ε
+            x0_pred = (x - (1 - abar_t).sqrt() * eps) / abar_t.sqrt()
 
-            if t_int == 0:
+            # DDIM coefficients (Song et al.), allow stochastic DDIM via eta
+            sigma_t = eta * ((1 - abar_prev)/(1 - abar_t)).sqrt() * (1 - abar_t/abar_prev).sqrt() if tprev >= 0 else 0.0
+            c = ((1 - abar_prev) - sigma_t**2).clamp(min=0).sqrt()
+
+            # update
+            noise = torch.randn_like(x, generator=g) if (tprev >= 0 and sigma_t > 0) else 0.0
+            x = abar_prev**0.5 * x0_pred + c * eps + sigma_t * noise
+
+            if t == 0:
                 break
 
         # save to disk

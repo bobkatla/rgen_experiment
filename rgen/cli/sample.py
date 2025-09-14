@@ -13,10 +13,11 @@ from rgen.core.sampling import ddim_sample, ddpm_sample
 @click.option("--w", "guidance_weight", type=float, default=3.0, help="CFG scale.")
 @click.option("--class-balance/--no-class-balance", default=True)
 @click.option("--seed", type=int, default=0)
+@click.option("--eta", type=float, default=0.0, help="DDIM eta (stochasticity) parameter.")
 @click.option("--classes-json", type=click.Path(exists=True, dir_okay=False), default=None,
               help="Optional path to classes.json (normally inferred from ckpt folder).")
 @click.option("--sample-type", "-type", type=click.Choice(["ddim", "ddpm"]), default="ddim", help="Sampling type.")
-def sample(ckpt, out_dir, n_samples, batch_size, steps, guidance, guidance_weight, class_balance, seed, classes_json, sample_type):
+def sample(ckpt, out_dir, n_samples, batch_size, steps, guidance, guidance_weight, class_balance, seed, eta, classes_json, sample_type):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if sample_type == "ddpm":
         ddpm_sample(
@@ -45,5 +46,6 @@ def sample(ckpt, out_dir, n_samples, batch_size, steps, guidance, guidance_weigh
             seed=seed,
             device=device,
             classes_json=classes_json,
+            eta=eta
         )
     click.echo(f"Saved {n_samples} images to {out_dir}")
