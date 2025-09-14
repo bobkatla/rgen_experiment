@@ -123,7 +123,7 @@ def train(
         urc_cfg = URCConfig(
             phi=None,  # we pass y directly
             mdn=MDNConfig(d_y=urc_dy, d_e=num_classes, n_comp=4, hidden=128, var_floor=1e-3, lr=5e-4),
-            quant=QuantileConfig(num_classes=num_classes, window_size=2048, warmup_min=128, alpha=urc_alpha),
+            quant=QuantileConfig(num_classes=num_classes, window_size=8192, warmup_min=512, alpha=urc_alpha),
             loss=LossConfig(w_acc=1.0, w_sep=0.0, w_size=0.0, margin_acc=0.0, mode_acc="softplus"),
         )
         urc = URCModule(urc_cfg).to(device, dtype=torch.float32)
