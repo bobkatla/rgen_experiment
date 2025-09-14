@@ -6,7 +6,9 @@ from rgen.core.model import UNet32
 from rgen.core.diffusion import GaussianDiffusion, DiffusionConfig
 
 # 1) load EMA ckpt
-ckpt = torch.load("output/cifar10_unet_eps/ckpt_ema_0100000.pt", map_location="cpu")
+# test_loc = "output/cifar10_unet_eps/ckpt_ema_0100000.pt"
+test_loc = "output/cifar10_unet_eps_cfg_urc/ckpt_raw_0200000.pt"
+ckpt = torch.load(test_loc, map_location="cpu")
 model = UNet32(num_classes=10, cond_null_id=10, predict_sigma=True)
 model.load_state_dict(ckpt["model"]); model.eval()
 
