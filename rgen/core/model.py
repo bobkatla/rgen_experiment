@@ -6,8 +6,26 @@ import torch
 from torch import nn
 
 # ---- Embeddings ----
-
 class SinusoidalPosEmb(nn.Module):
+    """Standard 1D sinusoidal embedding for timesteps."""
+    def __init__(self, dim: int):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        device = t.device
+        half = self.dim // 2
+        # exp(-linspace(log(1), log(10000), half)) gives 1/exp(...)
+        freqs = torch.exp(
+            torch.linspace(math.log(1.0), math.log(10000.0), half, device=device) * (-1)
+        )
+        args = t.float().unsqueeze(1) * freqs.unsqueeze(0)
+        emb = torch.cat([args.sin(), args.cos()], dim=-1)
+        if self.dim % 2 == 1:
+            emb = torch.nn.functional.pad(emb, (0, 1), mode="constant")
+        return emb
+
+class NewSinusoidalPosEmb(nn.Module):
     def __init__(self, dim: int, max_period: int = 10000):
         super().__init__()
         self.dim = dim
