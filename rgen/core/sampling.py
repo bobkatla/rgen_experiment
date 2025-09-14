@@ -90,8 +90,8 @@ def ddim_sample(
     t_seq = _build_schedule(timesteps, steps).to(device)       # e.g. [3999,...,0]
     assert t_seq[0] == timesteps-1 and t_seq[-1] == 0, (t_seq[:5], t_seq[-5:], len(t_seq))
     assert t_seq.unique().numel() == len(t_seq)
-    abar = diffusion.alphas_cumprod.to(device)                 # ᾱ_t
-    # alpha    = diffusion.alphas.to(device)                         # α_t
+    abar = diffusion.alphas_cumprod.to(device)
+    # alpha = diffusion.alphas.to(device)
     # betas = diffusion.betas.to(device)
 
     # sampling
@@ -103,34 +103,45 @@ def ddim_sample(
         y = labels[saved:saved+bs]
         x = torch.randn(bs, 3, 32, 32, device=device, generator=g)
 
-        for i, t in enumerate(t_seq):
-            t = int(t.item())
-            tprev = int(t_seq[i+1].item()) if i+1 < len(t_seq) else -1  # use -1 to denote x_{-1} ≡ x_0
-            abar_t     = abar[t]
-            abar_prev  = 1.0 if tprev < 0 else abar[tprev]
+        for i, t_idx in enumerate(t_seq):
+            t = int(t_idx.item())
+            has_prev = (i + 1) < len(t_seq)
+            tprev = int(t_seq[i+1].item()) if has_prev else -1
 
-            # ε prediction (CFG or not)
+            abar_t    = abar[t]                               # 0-D tensor
+            abar_prev = abar[tprev] if has_prev else abar.new_tensor(1.0)
+
+            # ε prediction (CFG mix on eps)
+            t_tensor = torch.full((bs,), t, device=device, dtype=torch.long)
             if use_guidance and guidance_weight != 0.0:
-                y_null = torch.full_like(y, cond_null_id)
-                eps_u = model(x, torch.full((bs,), t, device=device, dtype=torch.long), y_null)[:, :3]
-                eps_c = model(x, torch.full((bs,), t, device=device, dtype=torch.long), y)[:, :3]
+                y_null = torch.full_like(y, fill_value=cond_null_id)
+                eps_u = model(x, t_tensor, y_null)[:, :3]
+                eps_c = model(x, t_tensor, y)[:, :3]
                 eps   = eps_u + guidance_weight * (eps_c - eps_u)
             else:
-                eps   = model(x, torch.full((bs,), t, device=device, dtype=torch.long), y)[:, :3]
+                eps   = model(x, t_tensor, y)[:, :3]
 
-            # x0 from ε
-            x0_pred = (x - (1 - abar_t).sqrt() * eps) / abar_t.sqrt()
+            # x0 from eps
+            x0_pred = (x - (1.0 - abar_t).sqrt() * eps) / abar_t.sqrt()
 
-            # DDIM coefficients (Song et al.), allow stochastic DDIM via eta
-            sigma_t = eta * ((1 - abar_prev)/(1 - abar_t)).sqrt() * (1 - abar_t/abar_prev).sqrt() if tprev >= 0 else 0.0
-            c = ((1 - abar_prev) - sigma_t**2).clamp(min=0).sqrt()
-
-            # update
-            noise = torch.randn_like(x, generator=g) if (tprev >= 0 and sigma_t > 0) else 0.0
-            x = abar_prev**0.5 * x0_pred + c * eps + sigma_t * noise
-
-            if t == 0:
-                break
+            # DDIM coefficients (Song et al.), tensor-safe
+            if has_prev:
+                if eta == 0.0:
+                    sigma_t = abar.new_zeros(())              # 0-D tensor
+                else:
+                    sigma_t = (
+                        eta * ((1 - abar_prev)/(1 - abar_t)).sqrt()
+                            * (1 - abar_t/abar_prev).sqrt()
+                    )
+                c = ((1 - abar_prev) - sigma_t**2).clamp(min=0).sqrt()
+                if eta != 0.0 and sigma_t.item() > 0:
+                    noise = torch.randn_like(x, generator=g)
+                    x = abar_prev.sqrt() * x0_pred + c * eps + sigma_t * noise
+                else:
+                    x = abar_prev.sqrt() * x0_pred + c * eps
+            else:
+                # last update -> x0
+                x = x0_pred
 
         # save to disk
         imgs = (x.clamp(-1, 1) + 1) * 0.5
