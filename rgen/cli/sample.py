@@ -29,6 +29,8 @@ def sample(ckpt, out_dir, n_samples, batch_size, steps, guidance, guidance_weigh
             seed=seed,
             device=device,
             classes_json=classes_json,
+            use_guidance=guidance,
+            guidance_weight=guidance_weight
         )
     else:
         ddim_sample(
