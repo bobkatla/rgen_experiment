@@ -1,5 +1,7 @@
 from __future__ import annotations
-import json, math, os
+import json
+import math
+import os
 from typing import Optional
 import torch
 from torchvision.utils import save_image
@@ -154,7 +156,6 @@ def ddpm_sample(ckpt_path, out_dir, n_samples=10000, batch_size=100, steps=1000,
 
     # labels
     num_classes = 10
-    cond_null_id = num_classes
     if class_balance:
         per = int(math.ceil(n_samples / num_classes))
         labels = torch.arange(num_classes).repeat_interleave(per)[:n_samples]
@@ -192,7 +193,8 @@ def ddpm_sample(ckpt_path, out_dir, n_samples=10000, batch_size=100, steps=1000,
             mean = ( (at_prev.sqrt()) * x0_pred + (coef2) * eps )
 
             if t_int > 0:
-                noise = torch.randn_like(x, generator=g)
+                # Replace torch.randn_like with torch.randn for compatibility
+                noise = torch.randn(x.size(), device=x.device)
                 x = mean + coef1 * noise
             else:
                 x = mean
