@@ -18,5 +18,6 @@ rgen sample \
   --out-dir samples/cfg_ddim250_w3 \
   --sample-type ddim --guidance --w 3 --steps 250 \
   --n-samples 1000
+   # add: --eta 1.0
 
 rgen eval-fid --gen-dir samples/cfg_ddim250_w3 --reference folder --ref-dir data/cifar10/test
