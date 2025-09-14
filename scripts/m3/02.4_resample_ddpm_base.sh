@@ -14,21 +14,21 @@ mamba activate urc
 CKPT=output/cifar10_unet_eps/ckpt_ema_0100000.pt  # <- pick an EMA checkpoint
 
 # A) Re-sample with the fixed embedding (no retrain): sometimes enough to decode better
-rgen sample --ckpt "$CKPT" \
-  --out-dir samples/base_ddim250_noguid_fixpos --steps 250 --no-guidance --n-samples 1000
+# rgen sample --ckpt "$CKPT" \
+#   --out-dir samples/base_ddim250_noguid_fixpos --steps 250 --no-guidance --n-samples 1000
 
-# Evaluate FID against CIFAR-10 test
-rgen eval-fid \
-  --gen-dir samples/base_ddim250_noguid_fixpos \
-  --reference folder \
-  --ref-dir data/cifar10/test
+# # Evaluate FID against CIFAR-10 test
+# rgen eval-fid \
+#   --gen-dir samples/base_ddim250_noguid_fixpos \
+#   --reference folder \
+#   --ref-dir data/cifar10/test
 
 # B) DDPM-1000 fallback
 rgen sample --ckpt "$CKPT" \
-  --out-dir samples/base_ddpm250 --steps 250 --no-guidance --n-samples 1000 --sample-type ddpm
+  --out-dir samples/base_ddpm4000 --steps 4000 --no-guidance --n-samples 256 --sample-type ddpm
 
 # Evaluate FID against CIFAR-10 test
 rgen eval-fid \
-  --gen-dir samples/base_ddpm250 \
+  --gen-dir samples/base_ddpm4000 \
   --reference folder \
   --ref-dir data/cifar10/test
