@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=cifar10_urc_sample
-#SBATCH --output=cifar10_urc_sample.out
-#SBATCH --error=cifar10_urc_sample.err
+#SBATCH --job-name=cifar10_urc_sample_ddpm
+#SBATCH --output=cifar10_urc_sample_ddpm.out
+#SBATCH --error=cifar10_urc_sample_ddpm.err
 #SBATCH --account=tx89
 #SBATCH --time=90:00:00
 #SBATCH --ntasks=3
@@ -15,8 +15,8 @@ CKPT=output/updated_cifar10_unet_eps_cfg_urc/ckpt_ema_0200000.pt  # <- pick an E
 
 rgen sample \
   --ckpt "$CKPT" \
-  --out-dir samples/urc_final \
-  --sample-type ddim --guidance --w 3 --steps 250 \
+  --out-dir samples/urc_ddpm4000 \
+  --sample-type ddpm --guidance --w 3 --steps 4000 \
   --n-samples 5000
 
-rgen eval-fid --gen-dir samples/urc_final --reference folder --ref-dir data/cifar10/test
+rgen eval-fid --gen-dir samples/urc_ddpm4000 --reference folder --ref-dir data/cifar10/test
