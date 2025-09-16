@@ -17,6 +17,6 @@ rgen sample \
   --ckpt "$CKPT" \
   --out-dir samples/urc_ddpm4000 \
   --sample-type ddpm --guidance --w 3 --steps 4000 \
-  --n-samples 5000
+  --n-samples 50000
 
 rgen eval-fid --gen-dir samples/urc_ddpm4000 --reference folder --ref-dir data/cifar10/test
