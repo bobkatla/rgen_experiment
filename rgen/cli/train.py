@@ -122,7 +122,7 @@ def train(
         # URC config
         urc_cfg = URCConfig(
             phi=None,  # we pass y directly
-            mdn=MDNConfig(d_y=urc_dy, d_e=num_classes, n_comp=4, hidden=128, var_floor=1e-3, lr=5e-4),
+            mdn=MDNConfig(d_y=urc_dy, d_e=num_classes, n_comp=5, hidden=192, var_floor=5e-4, lr=1e-3),
             quant=QuantileConfig(num_classes=num_classes, window_size=8192, warmup_min=512, alpha=urc_alpha),
             loss=LossConfig(w_acc=1.0, w_sep=0.0, w_size=0.0, margin_acc=0.0, mode_acc="softplus"),
         )
@@ -173,6 +173,7 @@ def train(
     # ---- train loop
     model.train()
     step = 0
+    original_urc_weight = urc_weight
     while step < iters:
         x, y = next(loader_it)
         x = x.to(device, non_blocking=True)
@@ -190,6 +191,10 @@ def train(
 
         t = torch.randint(0, timesteps, (x.size(0),), device=device, dtype=torch.long)
 
+        # Linnear warmup of URC weight over first 10k steps
+        if use_urc and original_urc_weight > 0.0:
+            urc_weight = original_urc_weight * (step / 10_000) if step < 10_000 else original_urc_weight
+        
         with torch.amp.autocast("cuda", enabled=amp):
             out = diffusion.training_loss(
                 x, t, y_cond, labels_true,
