@@ -11,7 +11,7 @@
 
 module load miniforge3
 mamba activate urc
-CKPT=output/updated_cifar10_unet_eps_cfg_urc/ckpt_ema_0200000.pt  # <- pick an EMA checkpoint
+CKPT=output/updated2_cifar10_unet_eps_cfg_urc/ckpt_ema_0200000.pt  # <- pick an EMA checkpoint
 
 rgen sample \
   --ckpt "$CKPT" \
